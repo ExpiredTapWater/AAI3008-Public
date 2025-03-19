@@ -1,0 +1,11 @@
+[server]
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor="#FFFFFF"
+backgroundColor="#000000"
+secondaryBackgroundColor="#212326"
+textColor="#FFFFFF"

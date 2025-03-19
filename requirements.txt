@@ -1,0 +1,8 @@
+streamlit
+librosa
+torch
+whisperx
+spacy
+pydub
+streamlit_webrtc
+google-generativeai==0.8.3
