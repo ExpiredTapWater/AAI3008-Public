@@ -17,11 +17,15 @@ st.markdown('''<style>header {visibility: hidden;}</style>''', unsafe_allow_html
 # Change font
 with open( "./resources/style.css" ) as css:
     st.markdown( f'<style>{css.read()}</style>' , unsafe_allow_html= True)
+    
+# -------------------------- FOR VAST AI --------------------------
+HF_API_KEY = os.getenv("HF_API_KEY") or st.secrets['HF_API_KEY']
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets['GEMINI_API_KEY']
 
 # -------------------------- MODEL SETUP --------------------------
 
 # Configure Google AI
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Model config
 system_prompt = "You are a helpful chatbot answering questions based on a provided transcript"

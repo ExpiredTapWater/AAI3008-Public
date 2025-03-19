@@ -24,8 +24,14 @@ st.set_page_config(page_title="AAI3008", initial_sidebar_state="collapsed")
 # Change font
 with open( "./resources/style.css" ) as css:
     st.markdown( f'<style>{css.read()}</style>' , unsafe_allow_html= True)
+    
+# -------------------------- FOR VAST AI --------------------------
+HF_API_KEY = os.getenv("HF_API_KEY") or st.secrets['HF_API_KEY']
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets['GEMINI_API_KEY']
 
 # -------------------------- MODEL SETUP --------------------------
+
+
 
 # Model Setup
 TRANSCRIPTION_MODEL_NAME = "base"
@@ -75,7 +81,7 @@ def load_alignment_model():
 # Function to load diarization alignment model
 @st.cache_resource
 def load_diarization_model():
-    model = whisperx.DiarizationPipeline(use_auth_token=st.secrets['HF_API_KEY'], device=st.session_state.device)
+    model = whisperx.DiarizationPipeline(use_auth_token=HF_API_KEY, device=st.session_state.device)
     return model
 
 
