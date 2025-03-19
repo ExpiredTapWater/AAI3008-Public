@@ -184,7 +184,7 @@ def app_sst(status_indicator, text_output, timeout=3, energy_threshold=AMPLITUDE
             mode=WebRtcMode.SENDONLY,
             audio_receiver_size=1024,
             media_stream_constraints={"video": False, "audio": True},
-            rtc_configuration={"iceServers": []},  # Uncomment to speed up for LOCAL use only!!
+            #rtc_configuration={"iceServers": []},  # Uncomment to speed up for LOCAL use only!!
         )
 
     sound_chunk = AudioSegment.silent(duration=0)
