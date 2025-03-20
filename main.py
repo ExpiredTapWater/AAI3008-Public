@@ -9,6 +9,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 import streamlit as st
+import string
 
 from pydub import AudioSegment
 
@@ -31,14 +32,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets['GEMINI_API_KEY']
 
 # -------------------------- MODEL SETUP --------------------------
 
-
-
 # Model Setup
 TRANSCRIPTION_MODEL_NAME = "base"
-SPACY_MODEL = "./resources/trained_spacy_model"
+SPACY_MODEL = "./resources/office_spacy_model"
 
 # Run Variables
 langauge_flag = False
+BUFFER = 100
 
 # Function to run on startup
 @st.cache_resource
@@ -126,9 +126,9 @@ def anonymize_text(text):
     masked = False # State if a word has been replaced
     
     for ent in doc.ents:
-        if ent.label_ in ["NRIC", "PASSPORT_NUM", "EMAIL", "CREDIT_CARD", "BANK_ACCOUNT", "PHONE", "CAR_PLATE"]:  # Add more if needed
+        if ent.label_ in ["PERSON", "CLIENT_NAME", "PROJECT_NAME", "FINANCIAL_FIGURE", "CONTRACT_TERM", "DEADLINE", "STRATEGIC_DECISION", "PRODUCT_LAUNCH_INFO", "ACTION_ITEM"]:
             masked = True
-            replacement = '[MASK]'  # Can use 'XXXX-XXXX' or something else
+            replacement = '***HIDDEN***'  # Can use 'XXXX-XXXX' or something else
             new_text = new_text.replace(ent.text, replacement)
 
     return new_text, masked
@@ -140,39 +140,73 @@ def find_entities(text):
     entities = set()  # Use a set to avoid duplicates
 
     for ent in doc.ents:
-        if ent.label_ in ["NRIC", "PASSPORT_NUM", "EMAIL", "CREDIT_CARD", "BANK_ACCOUNT", "PHONE", "CAR_PLATE"]:
+        if ent.label_ in ["PERSON", "CLIENT_NAME", "PROJECT_NAME", "FINANCIAL_FIGURE", "CONTRACT_TERM", "DEADLINE", "STRATEGIC_DECISION", "PRODUCT_LAUNCH_INFO", "ACTION_ITEM"]:
             entities.add(ent.text)  # Store sensitive entity
     
     return entities
 
-# Includes fix for double word entities not catching single word phrases
+# Fixed major issue, tokens and transcripts different! "Hello everyone!" will fail check on "Hello", "everyone" due to tokenization!
 def mute_entities(audio, entities, timestamps):
+
     mute_regions = []
+    muted_words = set()
+
+    #print("\n DEBUG: Mute Entities Function Called")
+    #print(f"Entities to be muted: {entities}\n")
+    
+    if not timestamps:
+        print("No timestamps available. Skipping muting.")
+        return audio
 
     # Join words into phrases and check if they match
-    for entry in timestamps:
-        words = [word_entry["word"] for word_entry in entry["words"]]
+    for entry_index, entry in enumerate(timestamps):
+        # Remove punctuation from words before comparison
+        words = [word_entry["word"].strip().lower().translate(str.maketrans('', '', string.punctuation))
+                 for word_entry in entry["words"]]
         phrase = " ".join(words)  # Create a full phrase
 
+        #print(f"\nDEBUG: Processing Timestamp Entry {entry_index}")
+        #print(f"Transcribed Phrase: '{phrase}'")
+        #print(f"Timestamp Start: {entry['start']*1000:.2f} ms, End: {entry['end']*1000:.2f} ms")
+
         for entity in entities:
-            if entity in phrase:  # Check if any entity is within the phrase
-                entity_words = entity.split()
+            # Normalize entity and strip punctuation
+            normalized_entity = " ".join(entity.lower().split()).translate(str.maketrans('', '', string.punctuation))
+            normalized_phrase = " ".join(phrase.split())
+
+            #print(f"Checking for entity '{normalized_entity}' in phrase")
+
+            if normalized_entity in normalized_phrase:
+                entity_words = normalized_entity.split()
                 for i in range(len(words) - len(entity_words) + 1):
-                    if words[i:i + len(entity_words)] == entity_words:
-                        start_ms = int(entry["words"][i]["start"] * 1000)
-                        end_ms = int(entry["words"][i + len(entity_words) - 1]["end"] * 1000)
+                    if words[i:i + len(entity_words)] == entity_words and entity not in muted_words:
+                        start_entry = entry["words"][i]
+                        end_entry = entry["words"][i + len(entity_words) - 1]
+
+                        # Check if timestamps are available
+                        if "start" not in start_entry or "end" not in end_entry:
+                            print(f"Skipping '{entity}' due to missing timestamps: {words[i:i + len(entity_words)]}")
+                            continue
+
+                        start_ms = int(start_entry["start"] * 1000)
+                        end_ms = int(end_entry["end"] * 1000)
+
+                        # Add buffer but keep within bounds
+                        start_ms = max(0, start_ms - BUFFER)
+                        end_ms = min(len(audio), end_ms + BUFFER)
+
+                        #print(f"MUTING '{words[i:i + len(entity_words)]}' from {start_ms} ms to {end_ms} ms")
+
                         mute_regions.append((start_ms, end_ms))
+                        muted_words.add(entity)  # Prevent duplicate muting
 
     # Apply all mute regions at once
     for start_ms, end_ms in sorted(mute_regions, reverse=True):  # Reverse to avoid shifting issues
         silence = AudioSegment.silent(duration=(end_ms - start_ms))
         audio = audio[:start_ms] + silence + audio[end_ms:]
 
-    # Save to a temp file
-    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    audio.export(temp_audio.name, format="wav")
-
-    return temp_audio.name  # Return the temp file path
+    #print("DEBUG: Muting process completed.\n")
+    return audio
 
 # ---------------------- STREAMLIT FUNCTIONS ----------------------
 
@@ -247,7 +281,7 @@ else:
             format_func=lambda option: language_map[option],
             selection_mode="single",
             key="lang-select",
-            default=['auto']
+            default=['en']
         )
 
         if not language_selection:
@@ -292,13 +326,13 @@ if st.session_state.confirm and audio_input is not None:
         else:
             result = st.session_state.S2T.transcribe(audio, batch_size=1)
         
-        num_speakers = len(result["segments"])
+        num_segments = len(result["segments"])
         detected_language = result["language"]
 
     st.markdown("#### ") # Add gap
     st.caption(f'**Transcribed Text** (Language: {detected_language})')
-    for speaker in range(num_speakers):
-        st.markdown(f"**Speaker {speaker+1}**")
+    for speaker in range(num_segments):
+        st.markdown(f"**Segment {speaker+1}**")
         st.write_stream(stream_text(result["segments"][speaker]["text"]))
 
     langauge_flag = True
@@ -335,39 +369,39 @@ if langauge_flag:
 
         # Load original audio in case there are detected entities
         try: # Very dumb way to ensure audio is wav lol. Later on will be used by mute_entities which guarentees wav output
-            temp_file = AudioSegment.from_wav(temp_audio_path)
+            temp_segment = AudioSegment.from_wav(temp_audio_path)
         except pydub.exceptions.CouldntDecodeError:
-            temp_file = AudioSegment.from_mp3(temp_audio_path)
+            temp_segment = AudioSegment.from_mp3(temp_audio_path)
 
-        # Fix the new temp file first in case no matches are found (so entire code chunk below is bypassed)
-        new_temp_file = temp_file
-
-        # Iterate over each speaker
-        for speaker in range(num_speakers):
+        # Iterate over each segment
+        for seg in range(num_segments):
 
             # Get the masked text
-            masked_text, masked = anonymize_text(result["segments"][speaker]["text"])
+            masked_text, masked = anonymize_text(result["segments"][seg]["text"])
 
             # If some elements was changed
             if masked:
 
                 # Display masked text, and set flag
-                st.markdown(f"**Speaker {speaker+1}**")
+                st.markdown(f"**Segment {seg+1}**")
                 st.write_stream(stream_text(masked_text))
                 
                 # Get entities list and modify audio
-                entities_list = find_entities(result["segments"][speaker]["text"])
-                new_temp_file = mute_entities(temp_file, entities_list, alignment_result["segments"])
-                temp_file = AudioSegment.from_wav(new_temp_file)
+                entities_list = find_entities(result["segments"][seg]["text"])
+                temp_segment = mute_entities(temp_segment, entities_list, alignment_result["segments"])
 
                 mask_flag = True
 
     if mask_flag: # There are words masked, audio modification can be done 
 
+        # Stitch back audio segment
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_segment.export(temp_audio.name, format="wav")
+
         # Show modified audio
         st.markdown(" ") # Add small gap
         st.caption("**Modified Audio**")
-        st.audio(new_temp_file, format="audio/wav")
+        st.audio(temp_audio.name, format="audio/wav")
 
         # Save as json for user to download later
         with open("masked_transcript.txt", "w") as json_file:
