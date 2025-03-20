@@ -118,18 +118,19 @@ st.session_state.message = ""
 
 # Original function provided by Dylan
 def anonymize_text(text):
-    """
-    Detects sensitive entities and replaces them with placeholders.
-    """
+
     doc = st.session_state.NER(text)
     new_text = text  # Store modified text
-    masked = False # State if a word has been replaced
+    masked = False  # State if a word has been replaced
     
     for ent in doc.ents:
-        if ent.label_ in ["PERSON", "CLIENT_NAME", "PROJECT_NAME", "FINANCIAL_FIGURE", "CONTRACT_TERM", "DEADLINE", "STRATEGIC_DECISION", "PRODUCT_LAUNCH_INFO", "ACTION_ITEM"]:
+        
+        if ent.label_ in ["PERSON", "PROJECT_NAME", "FINANCIAL_FIGURE", "CONTRACT_TERM", "DEADLINE", "STRATEGIC_DECISION", "PRODUCT_LAUNCH_INFO", "ACTION_ITEM"]:
             masked = True
             replacement = '***HIDDEN***'  # Can use 'XXXX-XXXX' or something else
             new_text = new_text.replace(ent.text, replacement)
+
+            #print(f"Word: '{ent.text}' is detected as {ent.label_}")
 
     return new_text, masked
 
